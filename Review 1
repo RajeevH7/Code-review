@@ -1,0 +1,1301 @@
+set echo off
+PROMPT PwC Oracle Database 12c,18c,19c,21c audit script  (2022-05-24)
+PROMPT copyright (c) PricewaterhouseCoopers 2022
+PROMPT 
+PROMPT Operational instructions to the client:
+PROMPT =======================================
+PROMPT It is the client's responsibility to perform the following steps prior to 
+PROMPT execution of the script in the production environment:
+PROMPT  a) Scrutinize the contents of the script to ensure that it does not contain 
+PROMPT     any statements, commands or any other code that might negatively 
+PROMPT     influence their environment(s) in either a security or operational way.
+PROMPT  b) Test the script on the test environment to ensure that it does not 
+PROMPT     contain any statements, commands or any other code that might negatively 
+PROMPT     influence their environment(s) in either a security or operational way.
+PROMPT  c) The final responsibility for executing this script lies with the client.
+PROMPT  d) It is advised to execute the script during off-peak hours.
+PROMPT  e) The client must remove all copies of the script as it is the property 
+PROMPT     of PricewaterhouseCoopers. The client may retain the script results.
+PROMPT 
+PROMPT PLEASE ENSURE THAT:
+PROMPT 1) The script is being executed as the database owner OS user account.
+PROMPT 2) The environment variable $ORACLE_HOME is set correctly.
+PROMPT 
+
+accept pause_txt prompt "Press <ENTER> to continue or <CTRL-C> and then <ENTER> to abort."
+
+define file_desc = './pwc_tmp'
+!mkdir &file_desc 2> /dev/null
+
+set feedback off
+
+whenever sqlerror exit sql.sqlcode
+set serveroutput on
+declare
+  l_con_id integer;
+begin
+  execute immediate 'select sys_context(''userenv'', ''con_id'') from sys.dual' into l_con_id;
+  if l_con_id > 1 then
+    dbms_output.put_line('ERROR: Script not executed in con_id 0 or 1. Aborting.');
+    execute immediate 'select nonexistent_column from sys.blah';
+  end if;
+end;
+/
+set serveroutput off
+whenever sqlerror continue
+
+PROMPT Running... (This might take a minute or five)
+
+set feedback off
+set space 0
+set pagesize 0
+set linesize 4000
+set trimspool on
+set trimout on
+set termout off
+set timing off
+
+set escape on
+define ampersands = '\&\&'
+set escape off
+
+-- Database details, and script execution timestamp (RunTime)
+spool &&file_desc/DBDBNMS.TXT
+select 'DatabaseName;Created;LogMode;RunTime;OpenMode;RemoteArchive;DatabaseRole;SwitchoverStatus;' ||
+       'DataguardBroker;GuardStatus;PlatformID;PlatformName;FlashbackOn;CDB;ContainerID;' ||
+       'ContainerName;Space' from sys.dual;
+select    p.name                           ||';'||
+          to_char(p.created, 'YYYY-MM-DD') ||';'||
+          p.log_mode                       ||';'||
+          to_char(sysdate, 'YYYY-MM-DD')   ||';'||
+          p.open_mode                      ||';'||
+          p.remote_archive                 ||';'||
+          p.database_role                  ||';'||
+          p.switchover_status              ||';'||
+          p.dataguard_broker               ||';'||
+          p.guard_status                   ||';'||
+          p.platform_id                    ||';'||
+          p.platform_name                  ||';'||
+          p.flashback_on                   ||';'||
+          p.cdb                            ||';'||
+          p.con_id                         ||';'||
+          c.name                           ||';'
+from      SYS.V_$DATABASE p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBDBNMS_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$DATABASE p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- Database version
+spool &&file_desc/DBSYVER.TXT
+select 'Banner;ContainerID;ContainerName;Space' from sys.dual;
+select    p.banner     ||';'||
+          p.con_id     ||';'||
+          c.name       ||';'
+from      SYS.V_$VERSION p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBSYVER_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$VERSION p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- RAC node hostnames
+spool &&file_desc/DBHOSTNM.TXT
+SELECT 'InstID;InstanceNumber;InstanceName;HostName;Version;StartupTime;Status;Archiver;' ||
+       'Logins;DatabaseStatus;InstanceRole;ActiveState;Edition;Family;ContainerID;Space' from sys.dual;
+SELECT inst_id          ||';'||
+       instance_number  ||';'||
+       instance_name    ||';'||
+       host_name        ||';'||
+       version          ||';'||
+       startup_time     ||';'||
+       status           ||';'||
+       archiver         ||';'||
+       logins           ||';'||
+       database_status  ||';'||
+       instance_role    ||';'||
+       active_state     ||';'||
+       edition          ||';'||
+       family           ||';'||
+       con_id           ||';'
+from   SYS.GV_$INSTANCE;
+spool off
+
+-- completeness
+spool &&file_desc/DBHOSTNM_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from   SYS.GV_$INSTANCE;
+spool off
+
+-- Current container, in which the script was executed
+spool &&file_desc/DBCURCON.TXT
+show con_id con_name;
+spool off
+
+-- Multitenant containers
+-- 2017-04-28: snapshot_parent_con_id does not exist on all 12c databases
+spool &&file_desc/DBCNTNRS.TXT
+select 'ContainerID;ContainerName;OpenMode;Restricted;OpenTime;Space' from sys.dual;
+select   con_id       ||';'||
+         name         ||';'||
+         open_mode    ||';'||
+         restricted   ||';'||
+         open_time    ||';'
+--         snapshot_parent_con_id||';'
+from     SYS.V_$CONTAINERS
+order by con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBCNTNRS_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from     SYS.V_$CONTAINERS;
+spool off
+
+-- system options (installed features and options)
+spool &&file_desc/DBSYSOP.TXT
+select 'Parameter;Value;ContainerID;ContainerName;Space' from sys.dual;
+select    p.parameter  ||';'||
+          p.value      ||';'||
+          p.con_id     ||';'||
+          c.name       ||';'
+from      SYS.V_$OPTION p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBSYSOP_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$OPTION p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- Root database (con_id=1) instance parameters, point in time
+spool &&file_desc/DBPARMS1.TXT
+select 'Num;ParameterName;Type;Value;Default;Description;IsPDBModifiable;ContainerID;ContainerName;Space' from sys.dual;
+select    p.num              ||';'||
+          p.name             ||';'||
+          p.type             ||';'||
+          replace(replace(replace(p.value, ';', ','),chr(13),''),chr(10),' ') ||';'||
+          p.isdefault        ||';'||
+          p.description      ||';'||
+          p.ispdb_modifiable ||';'||
+          p.con_id           ||';'||
+          c.name             ||';'
+from      SYS.V_$PARAMETER p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+order by  p.name;
+spool off
+
+-- completeness
+spool &&file_desc/DBPARMS1_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$PARAMETER p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- PDB-specific instance parameters, and default (con_id=0) instance parameters inherited by all PDBs
+spool &&file_desc/DBPARMS2.TXT
+select 'Num;ParameterName;Type;Value;Default;Description;IsPDBModifiable;ContainerID;ContainerName;Space' from sys.dual;
+select    p.num               ||';'||
+          p.name              ||';'||
+          p.type              ||';'||
+          replace(replace(replace(p.value, ';', ','),chr(13),''),chr(10),' ') ||';'||
+          p.isdefault         ||';'||
+          p.description       ||';'||
+          p.ispdb_modifiable  ||';'||
+          p.con_id            ||';'||
+          c.name              ||';'
+from      SYS.V_$SYSTEM_PARAMETER p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+order by  p.name;
+spool off
+
+-- completeness
+spool &&file_desc/DBPARMS2_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$SYSTEM_PARAMETER p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- Database server set up allows container databases, or not
+spool &&file_desc/DBISCONT.TXT
+select 'DatabaseName;IsCDB;ContainerID;ContainerName;Space' from sys.dual;
+select    p.name    ||';'||
+          p.cdb     ||';'||
+          p.con_id  ||';'||
+          c.name    ||';'
+from      SYS.V_$DATABASE p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBISCONT_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$DATABASE p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- List services provided
+spool &&file_desc/DBSERVICES.TXT
+select 'ServiceName;PDB;ContainerID;ContainerName;Space' from sys.dual;
+select    p.name      ||';'||
+          p.pdb       ||';'||
+          p.con_id    ||';'||
+          c.name      ||';'
+from      SYS.V_$SERVICES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+order by  p.pdb, p.name;
+spool off
+
+-- completeness
+spool &&file_desc/DBSERVICES_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$SERVICES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- List pluggable databases (PDBs)
+-- 2017-04-28: snapshot_parent_con_id does not exist on all 12c databases
+spool &&file_desc/DBCONT.TXT
+select 'ContainerID;ContainerName;OpenMode;Restricted;OpenTime;' ||
+       'RecoveryStatus;Space' from sys.dual;
+select    p.con_id           ||';'||
+          p.name             ||';'||
+          p.open_mode        ||';'||
+          p.restricted       ||';'||
+          p.open_time        ||';'||
+          p.recovery_status  ||';'
+--          p.snapshot_parent_con_id||';'||
+--          c.name||';'
+from      SYS.V_$PDBS p;
+-- left join SYS.V_$CONTAINERS c on c.con_id = p.snapshot_parent_con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBCONT_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$PDBS p;
+spool off
+
+-- Data files, table spaces
+spool &&file_desc/DBDATAF.TXT
+select 'FileNo;SysStatus;Enabled;Name;Tablespace;Size;FileStatus;ContainerID;ContainerName;Space' from sys.dual;
+select    a.file#            ||';'||
+          a.status           ||';'||
+          a.enabled          ||';'||
+          a.name             ||';'||
+          p.tablespace_name  ||';'||
+          a.bytes            ||';'||
+          p.status           ||';'||
+          p.con_id           ||';'||
+          c.name             ||';'
+from      SYS.V_$DATAFILE a
+left join SYS.CDB_DATA_FILES p on a.name = p.file_name
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+order by  p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBDATAF_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$DATAFILE a
+left join SYS.CDB_DATA_FILES p on a.name = p.file_name
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- control files
+spool &&file_desc/DBCNTRF.TXT
+select 'Status;Name;ContainerID;ContainerName;Space' from sys.dual;
+select    p.status    ||';'||
+          p.name      ||';'||
+          p.con_id    ||';'||
+          c.name      ||';'
+from      SYS.V_$CONTROLFILE p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBCNTRF_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$CONTROLFILE p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- redo logs
+spool &&file_desc/DBLOGFL.TXT
+select 'GroupNo;LogStatus;FileName;Members;Archived;FileStatus;ContainerID;ContainerName;Space' from sys.dual;
+select    p.GROUP#     ||';'||
+          b.status     ||';'||
+          p.member     ||';'||
+          b.members    ||';'||
+          b.archived   ||';'||
+          p.status     ||';'||
+          p.con_id     ||';'||
+          c.name       ||';'
+from      SYS.V_$LOGFILE p
+left join SYS.V_$LOG b on p.group# = b.group#
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBLOGFL_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$LOGFILE p
+left join SYS.V_$LOG b on p.group# = b.group#
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- profiles (12c, 18c, 19c)
+spool &&file_desc/DBPROFI.TXT
+select 'Profile;Resource;Limit;ContainerID;ContainerName;Space' from sys.dual;
+select    p.profile||';'||
+          p.resource_name||';'||
+          p.limit||';'||
+          p.con_id||';'||
+          c.name||';'
+from      SYS.CDB_PROFILES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBPROFI_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_PROFILES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- profiles (21c or later. include the Mandatory column)
+spool &&file_desc/DBPROFI2.TXT
+select 'Profile;Resource;Limit;Mandatory;ContainerID;ContainerName;Space' from sys.dual;
+select    p.profile||';'||
+          p.resource_name||';'||
+          p.limit||';'||
+          p.mandatory||';'||
+          p.con_id||';'||
+          c.name||';'
+from      SYS.CDB_PROFILES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBPROFI2_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_PROFILES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- roles
+spool &&file_desc/DBROLES.TXT
+select 'Role;PasswordRequired;AuthenticationType;Common;OracleMaintained;ContainerID;ContainerName;Space' from sys.dual;
+select    p.role                 ||';'||
+          p.password_required    ||';'||
+          p.authentication_type  ||';'||
+          p.common               ||';'||
+          p.oracle_maintained    ||';'||
+          p.con_id               ||';'||
+          c.name                 ||';'
+from      SYS.CDB_ROLES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBROLES_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_ROLES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- users  (note: created, expiry_date, lock_date, last_login can create duplicate rows if grouped)
+spool &&file_desc/DBUDATA.TXT
+select 'UserID;UserName;AccountStatus;Created;LastLogin;ExpiryDate;LockDate;' ||
+       'DefaultTableSpace;TempTableSpace;Profile;InitialRsrcConsGroup;ExternalName;' ||
+       'PasswordVersions;EditionsEnabled;AuthenticationType;ProxyOnlyConnect;Common;' ||
+       'OracleMaintained;ContainerID;ContainerName;Space' from dual;
+select    p.user_id                            ||';'||
+          p.username                           ||';'||
+          p.account_status                     ||';'||
+          to_char(p.created,     'YYYY-MM-DD') ||';'||
+          to_char(p.last_login,  'YYYY-MM-DD') ||';'||
+          to_char(p.expiry_date, 'YYYY-MM-DD') ||';'||
+          to_char(p.lock_date,   'YYYY-MM-DD') ||';'||
+          p.default_tablespace                 ||';'||
+          p.temporary_tablespace               ||';'||
+          p.profile                            ||';'||
+          p.initial_rsrc_consumer_group        ||';'||
+          p.external_name                      ||';'||
+          p.password_versions                  ||';'||
+          p.editions_enabled                   ||';'||
+          p.authentication_type                ||';'||
+          p.proxy_only_connect                 ||';'||
+          p.common                             ||';'||
+          p.oracle_maintained                  ||';'||
+          p.con_id                             ||';'||
+          c.name                               ||';'
+from      SYS.CDB_USERS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBUDATA_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_USERS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- user role assignments
+-- 2017-04-28: delegate_option does not exist on all 12c databases
+spool &&file_desc/DBUSROL.TXT
+select 'User;Role;AdminOption;DelegateOption;DefaultRole;Common;ContainerID;ContainerName;Space' from dual;
+select    p.grantee           ||';'||
+          p.granted_role      ||';'||
+          p.admin_option      ||';'||
+          'IGNORED'           ||';'||
+--          p.delegate_option ||';'||
+          p.default_role      ||';'||
+          p.common            ||';'||
+          p.con_id            ||';'||
+          c.name              ||';'
+from      SYS.CDB_ROLE_PRIVS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+order by  p.grantee, p.granted_role;
+spool off
+
+-- completeness
+spool &&file_desc/DBUSROL_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_ROLE_PRIVS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- object privileges
+spool &&file_desc/DBRTPRIV.TXT
+select 'Grantee;Owner;TableName;Grantor;Privilege;Grantable;Hierarchy;Common;PrivType;ContainerID;ContainerName;Space' from sys.dual;
+select    p.grantee     ||';'||
+          p.owner       ||';'||
+          p.table_name  ||';'||
+          p.grantor     ||';'||
+          p.privilege   ||';'||
+          p.grantable   ||';'||
+          p.hierarchy   ||';'||
+          p.common      ||';'||
+          p.type        ||';'||
+          p.con_id      ||';'||
+          c.name        ||';'
+from      SYS.CDB_TAB_PRIVS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+where     p.type not in ('JAVA CLASS', 'JAVA RESOURCE')
+order by  p.grantee, p.table_name;
+spool off
+
+-- completeness
+spool &&file_desc/DBRTPRIV_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_TAB_PRIVS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+where     p.type not in ('JAVA CLASS', 'JAVA RESOURCE');
+spool off
+
+-- system privileges
+spool &&file_desc/DBRPRIV.TXT
+select 'Grantee;Privilege;AdminOption;Common;ContainerID;ContainerName;Space' from sys.dual;
+select    p.grantee       ||';'||
+          p.privilege     ||';'||
+          p.admin_option  ||';'||
+          p.common        ||';'||
+          p.con_id        ||';'||
+          c.name          ||';'
+from      SYS.CDB_SYS_PRIVS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+order by  p.grantee, p.privilege;
+spool off
+
+-- completeness
+spool &&file_desc/DBRPRIV_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_SYS_PRIVS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- database links
+spool &&file_desc/DBDBLNK.TXT
+select 'Owner;DBLink;User;Host;CreatedDate;ContainerID;ContainerName;Space' from sys.dual;
+select    p.owner     ||';'||
+          p.db_link   ||';'||
+          p.username  ||';'||
+          p.host      ||';'||
+          p.created   ||';'||
+          p.con_id    ||';'||
+          c.name      ||';'
+from      SYS.CDB_DB_LINKS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBDBLNK_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_DB_LINKS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- Legacy: Audited privileges
+spool &&file_desc/DBPRVAD.TXT
+select 'User;Proxy;Privilege;Success;Failure;ContainerID;ContainerName;Space' from sys.dual;
+select    p.user_name   ||';'||
+          p.proxy_name  ||';'||
+          p.privilege   ||';'||
+          p.success     ||';'||
+          p.failure     ||';'||
+          p.con_id      ||';'||
+          c.name        ||';'
+from      SYS.CDB_PRIV_AUDIT_OPTS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBPRVAD_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_PRIV_AUDIT_OPTS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- Legacy: Audited statements (if user_name is null, it's for all users)
+spool &&file_desc/DBSYSAU.TXT
+select 'User;Proxy;AuditOption;Success;Failure;ContainerID;ContainerName;Space' from sys.dual;
+select    p.user_name     ||';'||
+          p.proxy_name    ||';'||
+          p.audit_option  ||';'||
+          p.success       ||';'||
+          p.failure       ||';'||
+          p.con_id        ||';'||
+          c.name          ||';'
+from      SYS.CDB_STMT_AUDIT_OPTS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBSYSAU_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_STMT_AUDIT_OPTS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- Legacy: Audited objects
+spool &&file_desc/DBOBJAUD.TXT
+select 'Owner;ObjectName;ObjectType;zAlter;zAudit;zComments;zDelete;zGrant;zIndex;' ||
+       'zInsert;zLock;zRename;zSelect;zUpdate;zExecute;zCreate;' ||
+       'zAuditRead;zAuditWrite;zFlashback;ContainerID;ContainerName;Space' from sys.dual;
+select    p.owner        ||';'||
+          p.object_Name  ||';'||
+          p.object_Type  ||';'||
+          p.alt||';'||p.aud||';'||p.com||';'||p.del||';'||p.gra||';'||p.ind||';'||
+          p.ins||';'||p.loc||';'||p.ren||';'||p.sel||';'||p.upd||';'||
+          p.exe||';'||p.cre||';'||p.rea||';'||p.wri||';'||p.fbk||';'||
+          p.con_id||';'||
+          c.name||';'
+from      SYS.CDB_OBJ_AUDIT_OPTS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBOBJAUD_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_OBJ_AUDIT_OPTS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- Legacy: FGA policies
+spool &&file_desc/DBAUDFGA.TXT
+select 'ObjectSchema;ObjectName;PolicyOwner;PolicyText;PolicyColumn;PolicyName;PFSchema;PFPackage;PFFunction;' ||
+       'Enabled;Sel;Ins;Upd;Del;AuditTrail;PolicyColumnOptions;ContainerID;ContainerName;Space' from sys.dual;
+select    p.object_schema                                        ||';'||
+          p.object_name                                          ||';'||
+          p.policy_owner                                         ||';'||
+          replace(replace(replace(p.policy_text, ';', ','),chr(13),''),chr(10),' ') ||';'||
+          p.policy_column                                        ||';'||
+          p.policy_name                                          ||';'||
+          p.pf_schema                                            ||';'||
+          p.pf_package                                           ||';'||
+          p.pf_function                                          ||';'||
+          p.enabled                                              ||';'||
+          p.sel                                                  ||';'||
+          p.ins                                                  ||';'||
+          p.upd                                                  ||';'||
+          p.del                                                  ||';'||
+          p.audit_trail                                          ||';'||
+          p.policy_column_options                                ||';'||
+          p.con_id                                               ||';'||
+          c.name                                                 ||';'
+from	  SYS.CDB_AUDIT_POLICIES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBAUDFGA_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from	  SYS.CDB_AUDIT_POLICIES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- users having dba rights on any database
+spool &&file_desc/DBSYDBA.TXT
+select 'User;SysDBA;SysOPER;SysASM;SysBACKUP;SysDG;SysKM;ContainerID;ContainerName;Space' from sys.dual;
+select    p.username    ||';'||
+          p.sysdba      ||';'||
+          p.sysoper     ||';'||
+          p.sysasm      ||';'||
+          p.sysbackup   ||';'||
+          p.sysdg       ||';'||
+          p.syskm       ||';'||
+          p.con_id      ||';'||
+          c.name        ||';'
+from      SYS.V_$PWFILE_USERS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+order by  p.username;
+spool off
+
+-- completeness
+spool &&file_desc/DBSYDBA_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.V_$PWFILE_USERS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- table ownership
+spool &&file_desc/DBTABLE.TXT
+select 'Table;Owner;NumRows;TableSpace;ContainerID;ContainerName;Space' from sys.dual;
+select    p.table_name      ||';'||
+          p.owner           ||';'||
+          p.num_rows        ||';'||
+          p.tablespace_name ||';'||
+          p.con_id          ||';'||
+          c.name            ||';'
+from      SYS.CDB_TABLES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBTABLE_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_TABLES p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- triggers
+spool &&file_desc/DBTRIG.TXT
+select 'Owner;Trigger;Type;Event;Status;When;Description;ContainerID;ContainerName;Space' from dual;
+select    p.owner                       ||'$|%'||
+          p.trigger_name                ||'$|%'||
+          p.trigger_type                ||'$|%'||
+          p.triggering_event            ||'$|%'||
+          p.status                      ||'$|%'||
+          substr(p.when_clause,1,500)   ||'$|%'||
+          substr(p.description,1,1000)  ||'$|%'||
+          p.con_id                      ||'$|%'||
+          c.name                        ||'$|%'
+from      SYS.CDB_TRIGGERS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- completeness
+spool &&file_desc/DBTRIG_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_TRIGGERS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- users with default passwords
+spool &&file_desc/DBUDFPWD.TXT
+select 'User;Product;Status;ContainerID;ContainerName;Space' from sys.dual;
+select    p.username        ||';'||
+          p.product         ||';'||
+          t.account_status  ||';'||
+          p.con_id          ||';'||
+          c.name            ||';'
+from      SYS.CDB_USERS_WITH_DEFPWD p
+left join SYS.CDB_USERS t on t.username = p.username
+                         and t.con_id   = p.con_id
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+
+-- completeness
+spool &&file_desc/DBUDFPWD_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_USERS_WITH_DEFPWD p
+left join SYS.CDB_USERS t on t.username = p.username
+                         and t.con_id   = p.con_id
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id;
+spool off
+
+-- object types
+spool &&file_desc/DBOBJTYP.TXT
+select 'Owner;ObjectName;ObjectType;ContainerID;ContainerName;Space' from sys.dual;
+select    p.owner        ||';'||
+          p.object_name  ||';'||
+          p.object_type  ||';'||
+          p.con_id       ||';'||
+          c.name         ||';'
+from      SYS.CDB_OBJECTS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+where     p.object_type not in ('SYNONYM', 'JAVA CLASS', 'INDEX', 'TYPE',
+          'JAVA RESOURCE', 'INDEX PARTITION', 'TABLE PARTITION',
+          'JAVA DATA', 'SEQUENCE');
+spool off
+
+-- completeness
+spool &&file_desc/DBOBJTYP_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from      SYS.CDB_OBJECTS p
+left join SYS.V_$CONTAINERS c on c.con_id = p.con_id
+where     p.object_type not in ('SYNONYM', 'JAVA CLASS', 'INDEX', 'TYPE',
+          'JAVA RESOURCE', 'INDEX PARTITION', 'TABLE PARTITION',
+          'JAVA DATA', 'SEQUENCE');
+spool off
+
+-- database patches 1 (deprecated?)
+spool &&file_desc/DBREGHIS.TXT
+select 'Action_Time;Action;Namespace;Version;ID;Comments;Space' from sys.dual;
+select action_time  ||';'||
+       action       ||';'||
+       namespace    ||';'||
+       version      ||';'||
+       id           ||';'||
+       comments     ||';'
+from   REGISTRY$HISTORY;
+spool off
+
+-- completeness
+spool &&file_desc/DBREGHIS_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from   REGISTRY$HISTORY;
+spool off
+
+-- database patches 2  (12c structure differs from 18c, 19c. Use common columns)
+spool &&file_desc/DBPATCH.TXT
+select 'ActionTime;Action;Status;Description;PatchID;PatchUID;Space' from sys.dual;
+SELECT TO_CHAR(action_time, 'YYYY-MM-DD') ||';'||
+       action                             ||';'||
+       status                             ||';'||
+       description                        ||';'||
+       patch_id                           ||';'||
+       patch_uid                          ||';'
+FROM   sys.dba_registry_sqlpatch
+ORDER by action_time desc;
+spool off
+
+-- completeness
+spool &&file_desc/DBPATCH_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from   sys.dba_registry_sqlpatch;
+spool off
+
+-- password verify functions (split on multi-delimiter due to semi-colons in TEXT)
+spool &&file_desc/DBPWFUNC.TXT
+select 'ContainerID$|%ContainerName$|%OriginContainerID$|%Owner$|%FunctionName$|%Line$|%Text$|%Space' from sys.dual;
+SELECT replace(replace(
+       a.con_id        ||'$|%'||
+       c.name          ||'$|%'||
+       a.origin_con_id ||'$|%'||
+       a.owner         ||'$|%'||
+       a.name          ||'$|%'||
+       a.line          ||'$|%'||
+       a.text          ||'$|%'
+        ,chr(10), ''), chr(13), '')
+FROM cdb_source a
+INNER JOIN cdb_profiles b on a.name   = b.limit 
+                         and a.con_id = b.con_id
+LEFT JOIN SYS.V_$CONTAINERS c on c.con_id = a.con_id
+WHERE a.type = 'FUNCTION'
+and b.resource_name = 'PASSWORD_VERIFY_FUNCTION'
+and b.limit not in ('NULL', 'DEFAULT')
+ORDER BY a.con_id, a.owner, a.name, a.line;
+spool off
+
+-- completeness
+spool &&file_desc/DBPWFUNC_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from cdb_source a
+INNER JOIN cdb_profiles b on a.name   = b.limit 
+                         and a.con_id = b.con_id
+LEFT JOIN SYS.V_$CONTAINERS c on c.con_id = a.con_id
+where a.type = 'FUNCTION'
+and b.resource_name = 'PASSWORD_VERIFY_FUNCTION'
+and b.limit not in ('NULL', 'DEFAULT');
+spool off
+
+-- equivalent of rman command "list backup;"
+spool &&file_desc/DBBACKUP1.TXT
+select 'BSKey;BackupType;ControlfileIncluded;IncrementalLevel;Pieces;StartTime;CompletionTime;' ||
+       'Keep;KeepUntil;KeepOptions;DeviceType;Status;OriginalInputBytesDisplay;OutputBytesDisplay;' ||
+       'Encrypted;Fname;Tag;Obsolete;BSType;ContainerID;ContainerName;Space' from sys.dual;
+select a.bs_key                                 ||';'||
+       a.backup_type                            ||';'||
+       a.controlfile_included                   ||';'||
+       a.incremental_level                      ||';'||
+       a.pieces                                 ||';'||
+       to_char(a.start_time, 'YYYY-MM-DD')      ||';'||
+       to_char(a.completion_time, 'YYYY-MM-DD') ||';'||
+       a.keep                                   ||';'||
+       a.keep_until                             ||';'||
+       a.keep_options                           ||';'||
+       a.device_type                            ||';'||
+       a.status                                 ||';'||
+       a.original_input_bytes_display           ||';'||
+       a.output_bytes_display                   ||';'||
+       a.encrypted                              ||';'||
+       b.fname                                  ||';'||
+       b.tag                                    ||';'||
+       b.obsolete                               ||';'||
+       b.bs_type                                ||';'||
+       a.con_id                                 ||';'||
+       c.name                                   ||';'
+from v$backup_set_details a
+left join ( select *
+            from v$backup_files
+            where backup_type = 'BACKUP SET'
+            and file_type = 'PIECE'
+          ) b on a.bs_key = b.bs_key
+left join SYS.V_$CONTAINERS c on c.con_id = a.con_id
+order by a.bs_key;
+spool off
+
+-- completeness
+spool &&file_desc/DBBACKUP1_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from v$backup_set_details a
+left join ( select *
+            from v$backup_files
+            where backup_type = 'BACKUP SET'
+            and file_type = 'PIECE'
+          ) b on a.bs_key = b.bs_key
+left join SYS.V_$CONTAINERS c on c.con_id = a.con_id;
+spool off
+
+-- datafile elements of rman command "list backup;" above
+spool &&file_desc/DBBACKUP2.TXT
+select 'BSKey;FileType;Fname;DFFile;DFTablespace;DFCheckpointChange;ContainerID;ContainerName;Space' from sys.dual;
+select a.bs_key                 ||';'||
+       a.file_type              ||';'||
+       a.fname                  ||';'||
+       a.df_file#               ||';'||
+       a.df_tablespace          ||';'||
+       a.df_checkpoint_change#  ||';'||
+       a.con_id                 ||';'||
+       c.name                   ||';'
+from v$backup_files a
+left join SYS.V_$CONTAINERS c on c.con_id = a.con_id
+where a.backup_type = 'BACKUP SET'
+and a.file_type <> 'PIECE'
+order by a.bs_key;
+spool off
+
+-- completeness
+spool &&file_desc/DBBACKUP2_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select count(*)
+from v$backup_files a
+left join SYS.V_$CONTAINERS c on c.con_id = a.con_id
+where a.backup_type = 'BACKUP SET'
+and a.file_type <> 'PIECE';
+spool off
+
+variable bv number
+exec :bv := 0;
+
+-- unified auditing policy descriptions
+spool &&file_desc/DBUAPOLD.TXT
+select 'PolicyName;Common;Comments;ContainerID;ContainerName;Space' from sys.dual;
+set serveroutput on
+declare
+  type ids_t     is table of varchar2(200);
+  type names_t   is table of varchar2(200);
+  l_ids          ids_t;
+  l_names        names_t;
+  stmt           varchar2(2000);
+  cur            integer;
+  dummy          integer;
+  l_str          varchar2(3900);
+  l_int          integer;
+  mypdb          varchar2(200);
+begin
+  execute immediate 'select con_id from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_ids;
+  execute immediate 'select name   from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_names;
+  l_int := 0;
+  for indx in 1 .. l_names.count
+  loop
+    stmt := 'select p.policy_name||'';''||p.common||'';''||replace(replace(replace(c.comments, '';'', '',''), chr(13),''''),chr(10),'' '') ||'';'|| 
+             l_ids(indx) ||';'|| l_names(indx)||';'' ' ||
+            'from SYS.AUDIT_UNIFIED_POLICIES p ' ||
+            'left join SYS.AUDIT_UNIFIED_POLICY_COMMENTS c on c.policy_name = p.policy_name ' ||
+            'group by p.policy_name||'';''||p.common||'';''||replace(replace(replace(c.comments, '';'', '',''), chr(13),''''),chr(10),'' '') ||'';'
+             || l_ids(indx) ||';'|| l_names(indx)||';'' ';
+    mypdb := l_names(indx);
+    if mypdb <> 'PDB$SEED' then  -- script sometimes hangs on PDB$SEED, and its data is not needed
+      cur := dbms_sql.open_cursor;
+      dbms_sql.parse(c=>cur, statement=>stmt, container=>mypdb, language_flag=>dbms_sql.native);
+      dbms_sql.define_column(cur, 1, l_str, 3900);
+      dummy := dbms_sql.execute(cur);
+      while dbms_sql.fetch_rows(cur) > 0
+      loop
+        dbms_sql.column_value(cur, 1, l_str);
+        dbms_output.put_line(l_str);
+        l_int := l_int + 1;
+      end loop;
+      dbms_sql.close_cursor(cur);
+    end if;
+  end loop;
+  :bv := l_int;
+end;
+/
+spool off
+set serveroutput off
+
+-- completeness
+spool &&file_desc/DBUAPOLD_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select :bv from sys.dual;
+spool off
+
+exec :bv := 0;
+
+-- unified auditing policies
+spool &&file_desc/DBUAPOL.TXT
+select 'PolicyName;AuditCondition;ConditionEvalOpt;AuditOption;AuditOptionType;ObjectSchema;' ||
+       'ObjectName;ObjectType;Common;ContainerID;ContainerName;Space' from sys.dual;
+set serveroutput on
+declare
+  type ids_t     is table of varchar2(200);
+  type names_t   is table of varchar2(200);
+  l_ids          ids_t;
+  l_names        names_t;
+  stmt           varchar2(2000);
+  cur            integer;
+  dummy          integer;
+  l_str          varchar2(3900);
+  l_int          integer;
+  mypdb          varchar2(200);
+begin
+  execute immediate 'select con_id from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_ids;
+  execute immediate 'select name   from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_names;
+  l_int := 0;
+  for indx in 1 .. l_names.count
+  loop
+    stmt := 'select policy_name||'';''||replace(replace(replace(audit_condition, '';'', '',''), chr(13), ''''),chr(10),'' '') ||'';''||condition_eval_opt||'';''||' ||
+            'audit_option||'';''||audit_option_type||'';''||object_schema||'';''||object_name||'';''||' ||
+            'object_type||'';''||common||'';' || l_ids(indx) ||';'|| l_names(indx)||';'' ' ||
+            'from SYS.AUDIT_UNIFIED_POLICIES';
+    mypdb := l_names(indx);
+    if mypdb <> 'PDB$SEED' then
+      cur := dbms_sql.open_cursor;
+      dbms_sql.parse(c=>cur, statement=>stmt, container=>mypdb, language_flag=>dbms_sql.native);
+      dbms_sql.define_column(cur, 1, l_str, 3900);
+      dummy := dbms_sql.execute(cur);
+      while dbms_sql.fetch_rows(cur) > 0
+      loop
+        dbms_sql.column_value(cur, 1, l_str);
+        dbms_output.put_line(l_str);
+        l_int := l_int + 1;
+      end loop;
+      dbms_sql.close_cursor(cur);
+    end if;
+  end loop;
+  :bv := l_int;
+end;
+/
+spool off
+set serveroutput off
+
+-- completeness
+spool &&file_desc/DBUAPOL_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select :bv from sys.dual;
+spool off
+
+exec :bv := 0;
+
+-- unified auditing policy assignments (12.1 only)
+spool &&file_desc/DBUAPOLA.TXT
+select 'User;Policy;EnabledOpt;Success;Failure;ContainerID;ContainerName;Space' from sys.dual;
+set serveroutput on
+declare
+  type ids_t     is table of varchar2(200);
+  type names_t   is table of varchar2(200);
+  l_ids          ids_t;
+  l_names        names_t;
+  stmt           varchar2(2000);
+  cur            integer;
+  dummy          integer;
+  l_str          varchar2(3900);
+  l_int          integer;
+  mypdb          varchar2(200);
+begin
+  execute immediate 'select con_id from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_ids;
+  execute immediate 'select name   from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_names;
+  l_int := 0;
+  for indx in 1 .. l_names.count
+  loop
+    stmt := 'select user_name||'';''||policy_name||'';''||enabled_opt||'';''||' ||
+            'success||'';''||failure||'';' || l_ids(indx) ||';'|| l_names(indx)||';'' ' ||
+            'from SYS.AUDIT_UNIFIED_ENABLED_POLICIES';
+    mypdb := l_names(indx);
+    if mypdb <> 'PDB$SEED' then
+      cur := dbms_sql.open_cursor;
+      dbms_sql.parse(c=>cur, statement=>stmt, container=>mypdb, language_flag=>dbms_sql.native);
+      dbms_sql.define_column(cur, 1, l_str, 3900);
+      dummy := dbms_sql.execute(cur);
+      while dbms_sql.fetch_rows(cur) > 0
+      loop
+        dbms_sql.column_value(cur, 1, l_str);
+        dbms_output.put_line(l_str);
+        l_int := l_int + 1;
+      end loop;
+      dbms_sql.close_cursor(cur);
+    end if;
+  end loop;
+  :bv := l_int;
+end;
+/
+spool off
+set serveroutput off
+
+-- completeness
+spool &&file_desc/DBUAPOLA_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select :bv from sys.dual;
+spool off
+
+exec :bv := 0;
+
+-- unified auditing policy assignments (12.2, 18c, and 19c)
+spool &&file_desc/DBUAPOLA2.TXT
+select 'EntityName;EntityType;Policy;EnabledOption;Success;Failure;ContainerID;ContainerName;Space' from sys.dual;
+set serveroutput on
+declare
+  type ids_t     is table of varchar2(200);
+  type names_t   is table of varchar2(200);
+  l_ids          ids_t;
+  l_names        names_t;
+  stmt           varchar2(2000);
+  cur            integer;
+  dummy          integer;
+  l_str          varchar2(3900);
+  l_int          integer;
+  mypdb          varchar2(200);
+begin
+  execute immediate 'select con_id from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_ids;
+  execute immediate 'select name   from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_names;
+  l_int := 0;
+  for indx in 1 .. l_names.count
+  loop
+    stmt := 'select entity_name||'';''||entity_type||'';''||policy_name||'';''||enabled_option||'';''||' ||
+            'success||'';''||failure||'';' || l_ids(indx) ||';'|| l_names(indx)||';'' ' ||
+            'from SYS.AUDIT_UNIFIED_ENABLED_POLICIES';
+    mypdb := l_names(indx);
+    if mypdb <> 'PDB$SEED' then
+      cur := dbms_sql.open_cursor;
+      dbms_sql.parse(c=>cur, statement=>stmt, container=>mypdb, language_flag=>dbms_sql.native);
+      dbms_sql.define_column(cur, 1, l_str, 3900);
+      dummy := dbms_sql.execute(cur);
+      while dbms_sql.fetch_rows(cur) > 0
+      loop
+        dbms_sql.column_value(cur, 1, l_str);
+        dbms_output.put_line(l_str);
+        l_int := l_int + 1;
+      end loop;
+      dbms_sql.close_cursor(cur);
+    end if;
+  end loop;
+  :bv := l_int;
+end;
+/
+spool off
+set serveroutput off
+
+-- completeness
+spool &&file_desc/DBUAPOLA2_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select :bv from sys.dual;
+spool off
+
+exec :bv := 0;
+
+-- proxy users
+spool &&file_desc/DBUPROXY.TXT
+select 'Proxy;Client;Authentication;Flags;ContainerID;ContainerName;Space' from sys.dual;
+set serveroutput on
+declare
+  type ids_t     is table of varchar2(200);
+  type names_t   is table of varchar2(200);
+  l_ids          ids_t;
+  l_names        names_t;
+  stmt           varchar2(2000);
+  cur            integer;
+  dummy          integer;
+  l_str          varchar2(3900);
+  l_int          integer;
+  mypdb          varchar2(200);
+begin
+  execute immediate 'select con_id from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_ids;
+  execute immediate 'select name   from SYS.V_$CONTAINERS where open_mode like ''READ%'' order by con_id asc' bulk collect into l_names;
+  l_int := 0;
+  for indx in 1 .. l_names.count
+  loop
+    stmt := 'select proxy||'';''||client||'';''||authentication||'';''||' ||
+            'flags ||'';'|| l_ids(indx) ||';'|| l_names(indx)||';'' ' ||
+            'from SYS.PROXY_USERS';
+    mypdb := l_names(indx);
+    if mypdb <> 'PDB$SEED' then
+      cur := dbms_sql.open_cursor;
+      dbms_sql.parse(c=>cur, statement=>stmt, container=>mypdb, language_flag=>dbms_sql.native);
+      dbms_sql.define_column(cur, 1, l_str, 3900);
+      dummy := dbms_sql.execute(cur);
+      while dbms_sql.fetch_rows(cur) > 0
+      loop
+        dbms_sql.column_value(cur, 1, l_str);
+        dbms_output.put_line(l_str);
+        l_int := l_int + 1;
+      end loop;
+      dbms_sql.close_cursor(cur);
+    end if;
+  end loop;
+  :bv := l_int;
+end;
+/
+spool off
+set serveroutput off
+
+-- completeness
+spool &&file_desc/DBUPROXY_CNT.TXT
+select 'ROW_COUNT' from sys.dual;
+select :bv from sys.dual;
+spool off
+
+----------------------------------------------------------------------
+
+-- spfile permissions
+spool &&file_desc/fp_spfile.fp
+select value
+from SYS.V_$SYSTEM_PARAMETER
+where name = 'spfile';
+spool off
+!echo > &&file_desc/DBFPSPFL.TXT
+-- xargs -r workaround:
+!cat &&file_desc/fp_spfile.fp | xargs sh -c '[ "$#" -gt 0 ] &&ampersands ls -lL "$@" > &&file_desc/DBFPSPFL.TXT' sh
+!echo "ROW_COUNT" > &&file_desc/DBFPSPFL_CNT.TXT
+!wc -l &&file_desc/fp_spfile.fp | cut -d" " -f1 >> &&file_desc/DBFPSPFL_CNT.TXT
+
+-- data file permissions
+spool &&file_desc/fp_data.fp
+select name
+from SYS.V_$DATAFILE
+where substr(name, 1, 1) <> '+';
+spool off
+!echo > &&file_desc/DBFPDATA.TXT
+!cat &&file_desc/fp_data.fp | xargs sh -c '[ "$#" -gt 0 ] &&ampersands ls -lL "$@" > &&file_desc/DBFPDATA.TXT' sh
+!echo "ROW_COUNT" > &&file_desc/DBFPDATA_CNT.TXT
+!wc -l &&file_desc/fp_data.fp | cut -d" " -f1 >> &&file_desc/DBFPDATA_CNT.TXT
+
+-- control file permissions
+spool &&file_desc/fp_ctrl.fp
+select name
+from SYS.V_$CONTROLFILE
+where substr(name, 1, 1) <> '+';
+spool off
+!echo > &&file_desc/DBFPCTRL.TXT
+!cat &&file_desc/fp_ctrl.fp | xargs sh -c '[ "$#" -gt 0 ] &&ampersands ls -lL "$@" > &&file_desc/DBFPCTRL.TXT' sh
+!echo "ROW_COUNT" > &&file_desc/DBFPCTRL_CNT.TXT
+!wc -l &&file_desc/fp_ctrl.fp | cut -d" " -f1 >> &&file_desc/DBFPCTRL_CNT.TXT
+
+-- redo log file permissions
+spool &&file_desc/fp_redo.fp
+select member
+from SYS.V_$LOGFILE
+where substr(member, 1, 1) <> '+';
+spool off
+!echo > &&file_desc/DBFPREDO.TXT
+!cat &&file_desc/fp_redo.fp | xargs sh -c '[ "$#" -gt 0 ] &&ampersands ls -lL "$@" > &&file_desc/DBFPREDO.TXT' sh
+!echo "ROW_COUNT" > &&file_desc/DBFPREDO_CNT.TXT
+!wc -l &&file_desc/fp_redo.fp | cut -d" " -f1 >> &&file_desc/DBFPREDO_CNT.TXT
+
+-- archive log file permissions
+spool &&file_desc/fp_arch.fp
+select name
+from (  select name
+        from SYS.V_$ARCHIVED_LOG
+        where substr(name, 1, 1) <> '+'
+        order by completion_time desc )
+where rownum < 5000;
+spool off
+!echo > &&file_desc/DBFPARCH.TXT
+!cat &&file_desc/fp_arch.fp | xargs sh -c '[ "$#" -gt 0 ] &&ampersands ls -lL "$@" > &&file_desc/DBFPARCH.TXT' sh
+!echo "ROW_COUNT" > &&file_desc/DBFPARCH_CNT.TXT
+!wc -l &&file_desc/fp_arch.fp | cut -d" " -f1 >> &&file_desc/DBFPARCH_CNT.TXT
+
+-- config.s file permissions
+!ls -lL $ORACLE_HOME/rdbms/lib/config.s 2> /dev/null > &&file_desc/DBFPOSCS.TXT
+!echo "ROW_COUNT" > &&file_desc/DBFPOSCS_CNT.TXT
+!ls -lL $ORACLE_HOME/rdbms/lib/config.s 2> /dev/null | wc -l | cut -d" " -f1 >> &&file_desc/DBFPOSCS_CNT.TXT
+
+-- config.c file permissions
+!ls -lL $ORACLE_HOME/rdbms/lib/config.c 2> /dev/null > &&file_desc/DBFPOSCC.TXT
+!echo "ROW_COUNT" > &&file_desc/DBFPOSCC_CNT.TXT
+!ls -lL $ORACLE_HOME/rdbms/lib/config.c 2> /dev/null | wc -l | cut -d" " -f1 >> &&file_desc/DBFPOSCC_CNT.TXT
+
+----------------------------------------------------------------------
+
+column name new_value db_name
+select name from v$database;
+
+set termout on
+!chmod +x ./PwC_oracle_12c18c19c21c_OS-20220524.sh
+!./PwC_oracle_12c18c19c21c_OS-20220524.sh
+
+!cd &file_desc; tar cvf ../PwC_output_&db_name..tar *.TXT *.fp 2&> /dev/null
+PROMPT PwC Oracle Database 12c,18c,19c,21c audit script has finished.
+PROMPT Please provide PwC_output_&db_name..tar to a PwC representative.
+PROMPT
+set feedback on
